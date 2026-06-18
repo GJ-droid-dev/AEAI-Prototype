@@ -14,15 +14,19 @@ from agents import graph
 from ledger import merkle
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AEAI Prototype API", description="Adversarial Epistemic AI Network Prototype — Phase 2")
+app = FastAPI(title="AEAI Claim Verification API")
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow frontend to call backend
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from consensus.router import router as consensus_router
+app.include_router(consensus_router)
 
 # Initialize database
 db.init_db()
@@ -94,34 +98,137 @@ def _format_transcript(result: dict) -> str:
     return "\n".join(parts)
 
 def process_claim_background(claim_id: str, claim_text: str):
+    from agents.resolver import resolve_claim_dag
     try:
-        # Run the multi-agent graph
-        print(f"[{claim_id}] Starting Adversarial Validation Cycle for: {claim_text}")
-        result = graph.run_avc(claim_text)
+        print(f"[{claim_id}] Starting Epistemic Dependency Resolution for: {claim_text}")
         
-        verdict = result.get("verdict", "ERROR")
-        confidence = result.get("confidence_score", 0.0)
+        # 1. Resolve DAG down to atomic leaves
+        leaf_ids = resolve_claim_dag(claim_id, claim_text)
+        print(f"[{claim_id}] Decomposed into {len(leaf_ids)} atomic sub-claims.")
         
-        # Format the full transcript
-        transcript = _format_transcript(result)
+        sub_claim_results = []
+        confidences = []
+        verdicts = []
         
-        # Serialize sub-claim results and synthesis as JSON
+        # 2. Run AVC on each atomic leaf
+        for leaf_id in leaf_ids:
+            leaf_claim = db.get_claim(leaf_id)
+            leaf_text = leaf_claim["claim_text"]
+            
+            print(f"[{claim_id}] Running AVC on leaf: {leaf_text}")
+            result = graph.run_avc(leaf_text)
+            
+            sub_result = {
+                "sub_claim": result["claim"],
+                "verdict": result["verdict"],
+                "confidence_score": result["confidence_score"],
+                "reasoning": result["reasoning"],
+                "rounds_used": result.get("rounds_used", 1),
+                "unresolved_questions": result.get("unresolved_questions", []),
+                "debate_log": [
+                     {
+                         "round": i + 1,
+                         "prosecutor_packet": result["prior_attacks"][i] if i < len(result.get("prior_attacks", [])) else "{}",
+                         "defender_packet": result["prior_defenses"][i] if i < len(result.get("prior_defenses", [])) else "{}"
+                     }
+                     for i in range(result.get("rounds_used", 1))
+                ]
+            }
+            sub_claim_results.append(sub_result)
+            confidences.append(result["confidence_score"])
+            verdicts.append(result["verdict"])
+            
+        # 3. Aggregate
+        if not sub_claim_results:
+             final_verdict = "ERROR"
+             final_confidence = 0.0
+        elif "ERROR" in verdicts:
+             final_verdict = "ERROR"
+        elif "DISPUTED" in verdicts:
+             final_verdict = "DISPUTED"
+        elif "REFUTED" in verdicts:
+             final_verdict = "REFUTED"
+        else:
+             final_verdict = "VERIFIED"
+             
+        final_confidence = min(confidences) if confidences else 0.0
+        
+        reasoning_parts = []
+        for r in sub_claim_results:
+            reasoning_parts.append(
+                f"Sub-claim: \"{r['sub_claim']}\"\n"
+                f"  Verdict: {r['verdict']} (confidence: {r['confidence_score']:.2f}, rounds: {r['rounds_used']})\n"
+                f"  Reasoning: {r['reasoning']}"
+            )
+        aggregate_reasoning = (
+            f"AGGREGATE VERDICT: {final_verdict} (confidence: {final_confidence:.2f})\n"
+            f"Based on {len(sub_claim_results)} atomic axiom(s):\n\n"
+            + "\n\n".join(reasoning_parts)
+        )
+        
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import HumanMessage
+        llm_json = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0, model_kwargs={"response_mime_type": "application/json"})
+        synth_prompt = f"""You are the final synthesizer.
+The original claim was: "{claim_text}"
+Here are the results of the adversarial validation cycle for the axioms:
+{aggregate_reasoning}
+
+Based on these results, please provide a JSON object with three fields:
+1. "corrected_claim": A concise, modified version of the original claim that is factually accurate based on the research.
+2. "concise_reasoning": An articulated, brief, and clear reason for this corrected claim based on the research.
+3. "unresolved_questions": A list of any unresolved questions or nuances.
+"""
+        try:
+            response = llm_json.invoke([HumanMessage(content=synth_prompt)])
+            parsed = json.loads(response.content)
+            corrected_claim = parsed.get("corrected_claim", claim_text)
+            concise_reasoning = parsed.get("concise_reasoning", "")
+            overall_unresolved = parsed.get("unresolved_questions", [])
+        except Exception as e:
+            corrected_claim = claim_text
+            concise_reasoning = "Failed to synthesize final verdict."
+            overall_unresolved = []
+
         sub_claims_json = json.dumps({
-            "sub_claims": result.get("sub_claim_results", []),
-            "corrected_claim": result.get("corrected_claim", ""),
-            "concise_reasoning": result.get("concise_reasoning", ""),
-            "unresolved_questions": result.get("overall_unresolved_questions", [])
+            "sub_claims": sub_claim_results,
+            "corrected_claim": corrected_claim,
+            "concise_reasoning": concise_reasoning,
+            "unresolved_questions": overall_unresolved if isinstance(overall_unresolved, list) else []
         }, default=str)
         
+        transcript = aggregate_reasoning
+        
+        # Upload evidence bundle to IPFS
+        evidence_bundle = {
+            "claim_id": claim_id,
+            "claim_text": claim_text,
+            "verdict": final_verdict,
+            "confidence": final_confidence,
+            "sub_claims": sub_claim_results,
+            "corrected_claim": corrected_claim,
+            "reasoning": concise_reasoning
+        }
+        from ledger.ipfs import pin_json_to_ipfs
+        ipfs_cid = pin_json_to_ipfs(evidence_bundle)
+        print(f"[{claim_id}] IPFS Evidence CID: {ipfs_cid}")
+        
         # Append to transparency log
-        merkle_root = merkle.append_to_log(claim_id, verdict, confidence, transcript)
+        merkle_root = merkle.append_to_log(claim_id, final_verdict, final_confidence, transcript, ipfs_cid=ipfs_cid)
         print(f"[{claim_id}] Committed to Transparency Log. Root: {merkle_root}")
         
         # Update database
-        db.update_claim_verdict(claim_id, verdict, confidence, transcript, sub_claims_json)
+        db.update_claim_verdict(claim_id, final_verdict, final_confidence, transcript, sub_claims_json)
+        
+        # P2P Federation Broadcast
+        from consensus.peer import broadcast_gossip
+        print(f"[{claim_id}] Broadcasting verification to P2P Federation...")
+        broadcast_gossip(claim_id, final_verdict, final_confidence, ipfs_cid)
         
     except Exception as e:
         print(f"[{claim_id}] Error during processing: {str(e)}")
+        import traceback
+        traceback.print_exc()
         db.update_claim_verdict(claim_id, "ERROR", 0.0, str(e))
 
 @app.post("/verify", response_model=VerificationResponse)
@@ -179,6 +286,14 @@ def get_sci_data():
     """Returns the Source Credibility Index tracking data."""
     try:
         return {"sources": db.get_all_sci()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/entities")
+def get_entities_data():
+    """Returns the Entity Bias Engine tracking data."""
+    try:
+        return {"entities": db.get_all_entities()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

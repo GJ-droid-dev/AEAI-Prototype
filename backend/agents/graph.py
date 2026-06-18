@@ -6,7 +6,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 import requests
 from .prompts import (
-    DECOMPOSITION_PROMPT,
     PROSECUTOR_PROMPT,
     DEFENDER_PROMPT,
     ADJUDICATOR_PROMPT,
@@ -20,28 +19,17 @@ SEARCH_RESULTS_PER_QUERY = 10
 
 # --- State Definition ---
 class AgentState(TypedDict):
-    # Original claim
-    original_claim: str
-    # Decomposed sub-claims
-    sub_claims: List[str]
-    current_sub_claim_index: int
-    sub_claim_results: List[dict]
-    # Current AVC round state
-    claim: str  # The active sub-claim being debated
+    claim: str
     round: int
     max_rounds: int
-    prosecutor_attack: str # Now stores JSON string
-    defender_defense: str # Now stores JSON string
-    prior_attacks: List[str] # List of JSON strings
-    prior_defenses: List[str] # List of JSON strings
-    # Verdict
+    prosecutor_attack: str
+    defender_defense: str
+    prior_attacks: List[str]
+    prior_defenses: List[str]
     verdict: str
     confidence_score: float
     reasoning: str
     unresolved_questions: List[str]
-    corrected_claim: str
-    concise_reasoning: str
-    overall_unresolved_questions: List[str]
 
 # --- LLM Instances ---
 llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0)
@@ -96,70 +84,34 @@ def _build_prior_context(label: str, prior_items: List[str]) -> str:
         return ""
     parts = []
     for i, item in enumerate(prior_items, 1):
-        # We assume item is a JSON string of the structured packet
         try:
             parsed = json.loads(item)
             summary = parsed.get("argument_summary", "No summary.")
         except json.JSONDecodeError:
-            summary = item # fallback
+            summary = item
         parts.append(f"--- Round {i} {label} ---\n{summary}")
     return "YOUR PRIOR ARGUMENTS (do NOT repeat these):\n" + "\n\n".join(parts)
 
 
+def _get_entity_biases_str() -> str:
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, bias_score, known_cois FROM entities")
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return "No known entity biases recorded yet."
+        parts = []
+        for r in rows:
+            parts.append(f"- {r[0]}: Bias Score = {r[1]}, Known COIs: {r[2]}")
+        return "\n".join(parts)
+    except Exception as e:
+        return f"Error retrieving biases: {e}"
+
 # --- Nodes ---
 
-def decompose_node(state: AgentState):
-    """Decompose a compound claim into atomic sub-claims."""
-    claim = state["original_claim"]
-    prompt = DECOMPOSITION_PROMPT.format(claim=claim)
-    messages = [HumanMessage(content=prompt)]
-
-    response = llm_json.invoke(messages)
-    content_str = extract_text(response.content)
-
-    try:
-        sub_claims = json.loads(content_str)
-        if isinstance(sub_claims, list) and len(sub_claims) > 0:
-            sub_claims = [str(sc) for sc in sub_claims]
-        else:
-            sub_claims = [claim]
-    except Exception:
-        sub_claims = [claim]
-
-    print(f"  [Decompose] Broke into {len(sub_claims)} sub-claim(s): {sub_claims}")
-    return {
-        "sub_claims": sub_claims,
-        "current_sub_claim_index": 0,
-        "sub_claim_results": [],
-    }
-
-
-def select_subclaim_node(state: AgentState):
-    """Pick the next unresolved sub-claim and reset AVC state for it."""
-    idx = state["current_sub_claim_index"]
-    sub_claims = state["sub_claims"]
-
-    if idx >= len(sub_claims):
-        return {}
-
-    active_claim = sub_claims[idx]
-    print(f"  [Select] Starting sub-claim {idx + 1}/{len(sub_claims)}: {active_claim}")
-    return {
-        "claim": active_claim,
-        "round": 1,
-        "prosecutor_attack": "",
-        "defender_defense": "",
-        "prior_attacks": [],
-        "prior_defenses": [],
-        "verdict": "",
-        "confidence_score": 0.0,
-        "reasoning": "",
-        "unresolved_questions": [],
-    }
-
-
 def prosecutor_node(state: AgentState):
-    """Prosecutor attacks the claim with dual search queries and outputs JSON."""
     claim = state["claim"]
     current_round = state["round"]
     prior_attacks = state.get("prior_attacks", [])
@@ -191,7 +143,6 @@ def prosecutor_node(state: AgentState):
 
 
 def defender_node(state: AgentState):
-    """Defender defends the claim with dual search queries and outputs JSON."""
     claim = state["claim"]
     attack = state["prosecutor_attack"]
     current_round = state["round"]
@@ -225,7 +176,6 @@ def defender_node(state: AgentState):
 
 
 def adjudicator_node(state: AgentState):
-    """Adjudicator evaluates the structured packets and decides: final verdict or loop. Updates SCI."""
     claim = state["claim"]
     attack = state["prosecutor_attack"]
     defense = state["defender_defense"]
@@ -240,6 +190,7 @@ def adjudicator_node(state: AgentState):
         defender_defense=defense,
         round=current_round,
         max_rounds=max_rounds,
+        entity_biases=_get_entity_biases_str()
     )
 
     messages = [HumanMessage(content=prompt)]
@@ -254,7 +205,6 @@ def adjudicator_node(state: AgentState):
         unresolved = result.get("unresolved_questions", [])
         source_evals = result.get("source_evaluations", [])
 
-        # Update Source Credibility Index (SCI) based on Adjudicator's evaluations
         for eval_obj in source_evals:
             domain = eval_obj.get("domain")
             is_reliable = eval_obj.get("is_reliable", False)
@@ -265,13 +215,10 @@ def adjudicator_node(state: AgentState):
                 except Exception as db_e:
                     print(f"  [SCI Error] Failed to update SCI for {domain}: {db_e}")
 
-        # Force final verdict on last round
         if current_round >= max_rounds and verdict == "NEEDS_MORE_ROUNDS":
             verdict = "DISPUTED"
 
-        print(
-            f"  [Adjudicator R{current_round}] Verdict={verdict}, Confidence={confidence:.2f}"
-        )
+        print(f"  [Adjudicator R{current_round}] Verdict={verdict}, Confidence={confidence:.2f}")
 
         new_prior_attacks = list(prior_attacks) + [attack]
         new_prior_defenses = list(prior_defenses) + [defense]
@@ -304,126 +251,11 @@ def loop_or_finalize(state: AgentState):
     if verdict == "NEEDS_MORE_ROUNDS" and current_round < max_rounds:
         return "next_round"
     else:
-        return "subclaim_done"
+        return "done"
 
 
 def increment_round_node(state: AgentState):
     return {"round": state["round"] + 1}
-
-
-def store_subclaim_result_node(state: AgentState):
-    """Store the completed sub-claim result and advance the index."""
-    result = {
-        "sub_claim": state["claim"],
-        "verdict": state["verdict"],
-        "confidence_score": state["confidence_score"],
-        "reasoning": state["reasoning"],
-        "rounds_used": state["round"],
-        "unresolved_questions": state.get("unresolved_questions", []),
-        "debate_log": [
-            {
-                "round": i + 1,
-                "prosecutor_packet": state["prior_attacks"][i] if i < len(state.get("prior_attacks", [])) else "{}",
-                "defender_packet": state["prior_defenses"][i] if i < len(state.get("prior_defenses", [])) else "{}",
-            }
-            for i in range(state["round"])
-        ],
-    }
-
-    new_results = list(state.get("sub_claim_results", [])) + [result]
-    new_index = state["current_sub_claim_index"] + 1
-
-    print(
-        f"  [Store] Sub-claim '{state['claim'][:50]}...' -> {state['verdict']} ({state['confidence_score']:.2f})"
-    )
-    return {
-        "sub_claim_results": new_results,
-        "current_sub_claim_index": new_index,
-    }
-
-
-def all_subclaims_done(state: AgentState):
-    idx = state["current_sub_claim_index"]
-    total = len(state["sub_claims"])
-    if idx >= total:
-        return "aggregate"
-    else:
-        return "next_subclaim"
-
-
-def aggregate_node(state: AgentState):
-    """Combine all sub-claim results into a final verdict."""
-    results = state["sub_claim_results"]
-
-    if not results:
-        return {
-            "verdict": "ERROR",
-            "confidence_score": 0.0,
-            "reasoning": "No sub-claim results to aggregate.",
-        }
-
-    verdicts = [r["verdict"] for r in results]
-    confidences = [r["confidence_score"] for r in results]
-
-    if "ERROR" in verdicts:
-        final_verdict = "ERROR"
-    elif "DISPUTED" in verdicts:
-        final_verdict = "DISPUTED"
-    elif "REFUTED" in verdicts:
-        final_verdict = "REFUTED"
-    else:
-        final_verdict = "VERIFIED"
-
-    final_confidence = min(confidences)
-
-    reasoning_parts = []
-    for r in results:
-        reasoning_parts.append(
-            f"Sub-claim: \"{r['sub_claim']}\"\n"
-            f"  Verdict: {r['verdict']} (confidence: {r['confidence_score']:.2f}, rounds: {r['rounds_used']})\n"
-            f"  Reasoning: {r['reasoning']}"
-        )
-    aggregate_reasoning = (
-        f"AGGREGATE VERDICT: {final_verdict} (confidence: {final_confidence:.2f})\n"
-        f"Based on {len(results)} sub-claim(s):\n\n"
-        + "\n\n".join(reasoning_parts)
-    )
-
-    synth_prompt = f"""You are the final synthesizer for an Adversarial Epistemic AI Network.
-The original claim was: "{state['original_claim']}"
-
-Here are the results of the adversarial validation cycle for the sub-claims:
-{aggregate_reasoning}
-
-Based on these results, please provide a JSON object with three fields:
-1. "corrected_claim": A concise, modified version of the original claim that is factually accurate based on the research. If the claim was verified, it might be identical. If refuted, it should state the corrected reality.
-2. "concise_reasoning": An articulated, brief, and clear reason for this corrected claim based on the research.
-3. "unresolved_questions": A list of any unresolved questions or nuances.
-"""
-    try:
-        messages = [HumanMessage(content=synth_prompt)]
-        response = llm_json.invoke(messages)
-        parsed = json.loads(extract_text(response.content))
-        corrected_claim = parsed.get("corrected_claim", state["original_claim"])
-        concise_reasoning = parsed.get("concise_reasoning", "")
-        overall_unresolved = parsed.get("unresolved_questions", [])
-    except Exception as e:
-        print(f"  [Aggregate] LLM Synthesis error: {e}")
-        corrected_claim = state["original_claim"]
-        concise_reasoning = "Failed to generate concise summary."
-        overall_unresolved = []
-
-    print(
-        f"  [Aggregate] Final: {final_verdict} ({final_confidence:.2f}) from {len(results)} sub-claims"
-    )
-    return {
-        "verdict": final_verdict,
-        "confidence_score": final_confidence,
-        "reasoning": aggregate_reasoning,
-        "corrected_claim": corrected_claim,
-        "concise_reasoning": concise_reasoning,
-        "overall_unresolved_questions": overall_unresolved if isinstance(overall_unresolved, list) else [],
-    }
 
 
 # --- Graph Construction ---
@@ -431,58 +263,36 @@ Based on these results, please provide a JSON object with three fields:
 def build_graph():
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("decompose", decompose_node)
-    workflow.add_node("select_subclaim", select_subclaim_node)
     workflow.add_node("prosecutor", prosecutor_node)
     workflow.add_node("defender", defender_node)
     workflow.add_node("adjudicator", adjudicator_node)
     workflow.add_node("increment_round", increment_round_node)
-    workflow.add_node("store_subclaim_result", store_subclaim_result_node)
-    workflow.add_node("aggregate", aggregate_node)
 
-    workflow.set_entry_point("decompose")
-    workflow.add_edge("decompose", "select_subclaim")
-    workflow.add_edge("select_subclaim", "prosecutor")
+    workflow.set_entry_point("prosecutor")
     workflow.add_edge("prosecutor", "defender")
     workflow.add_edge("defender", "adjudicator")
 
     workflow.add_conditional_edges(
         "adjudicator",
         loop_or_finalize,
-        {
-            "next_round": "increment_round",
-            "subclaim_done": "store_subclaim_result",
-        },
+        {"next_round": "increment_round", "done": END},
     )
-
     workflow.add_edge("increment_round", "prosecutor")
-
-    workflow.add_conditional_edges(
-        "store_subclaim_result",
-        all_subclaims_done,
-        {
-            "next_subclaim": "select_subclaim",
-            "aggregate": "aggregate",
-        },
-    )
-
-    workflow.add_edge("aggregate", END)
 
     return workflow.compile()
 
+avc_graph = build_graph()
 
-# --- Public API ---
-
-def run_avc(claim: str):
-    graph = build_graph()
+def run_avc(claim_text: str, max_rounds: int = 3):
+    """
+    Run the Adversarial Validation Cycle for a single claim.
+    """
+    print(f"\n[AVC Started] Claim: '{claim_text}'")
+    
     initial_state = {
-        "original_claim": claim,
-        "sub_claims": [],
-        "current_sub_claim_index": 0,
-        "sub_claim_results": [],
-        "claim": claim,
+        "claim": claim_text,
         "round": 1,
-        "max_rounds": MAX_ROUNDS,
+        "max_rounds": max_rounds,
         "prosecutor_attack": "",
         "defender_defense": "",
         "prior_attacks": [],
@@ -492,6 +302,16 @@ def run_avc(claim: str):
         "reasoning": "",
         "unresolved_questions": [],
     }
-
-    result = graph.invoke(initial_state)
-    return result
+    
+    final_state = avc_graph.invoke(initial_state)
+    
+    return {
+        "claim": final_state["claim"],
+        "verdict": final_state["verdict"],
+        "confidence_score": final_state["confidence_score"],
+        "reasoning": final_state["reasoning"],
+        "unresolved_questions": final_state.get("unresolved_questions", []),
+        "rounds_used": final_state["round"],
+        "prior_attacks": final_state["prior_attacks"],
+        "prior_defenses": final_state["prior_defenses"]
+    }

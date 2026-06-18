@@ -15,12 +15,13 @@ import {
 } from "@/lib/aeai-api";
 import { DebateViewer, EvidenceTable } from "@/components/aeai/DebateViewer";
 import { SciDashboard } from "@/components/aeai/SciDashboard";
+import { EntityBiasDashboard } from "@/components/aeai/EntityBiasDashboard";
 
 export const Route = createFileRoute("/")({
   component: AEAI,
 });
 
-type ScreenId = "hero" | "walk" | "verdict" | "map" | "sci";
+type ScreenId = "hero" | "walk" | "verdict" | "map" | "sci" | "entities";
 
 function AEAI() {
   const [screen, setScreen] = useState<ScreenId>("hero");
@@ -105,6 +106,7 @@ function AEAI() {
     verdict: useRef<HTMLDivElement | null>(null),
     map: useRef<HTMLDivElement | null>(null),
     sci: useRef<HTMLDivElement | null>(null),
+    entities: useRef<HTMLDivElement | null>(null),
   };
   useEffect(() => {
     screenRefs[screen].current?.scrollTo({ top: 0 });
@@ -138,6 +140,9 @@ function AEAI() {
           <span className="nav-logo-sub">Adversarial Epistemic AI Network</span>
         </div>
         <div className="nav-links">
+          <button className="nav-link" onClick={() => showScreen("entities")} aria-label="Entity Bias Engine">
+            Entity Bias
+          </button>
           <button className="nav-link" onClick={() => showScreen("sci")} aria-label="Source Credibility Index">
             SCI
           </button>
@@ -182,7 +187,41 @@ function AEAI() {
         onBack={() => setScreen(prevScreen === "sci" ? "hero" : prevScreen)}
         onRestart={restart}
       />
+      <EntitiesScreen
+        active={screen === "entities"}
+        scrollRef={screenRefs.entities}
+        onBack={() => setScreen(prevScreen === "entities" ? "hero" : prevScreen)}
+        onRestart={restart}
+      />
     </>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// ENTITIES SCREEN
+// ═════════════════════════════════════════════════════════════
+function EntitiesScreen({
+  active,
+  scrollRef,
+  onBack,
+  onRestart,
+}: {
+  active: boolean;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  onBack: () => void;
+  onRestart: () => void;
+}) {
+  return (
+    <div
+      ref={scrollRef}
+      id="screen-entities"
+      className={`screen${active ? " screen-active" : ""}`}
+      role="main"
+    >
+      <div className="map-view">
+        <EntityBiasDashboard />
+      </div>
+    </div>
   );
 }
 

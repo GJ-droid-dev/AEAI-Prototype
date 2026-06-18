@@ -36,6 +36,24 @@ def init_db():
     )
     """)
     
+    # DAG edges for epistemic decomposition
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS claim_edges (
+        parent_id TEXT,
+        child_id TEXT,
+        PRIMARY KEY (parent_id, child_id)
+    )
+    """)
+
+    # Entity Bias Engine table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS entities (
+        name TEXT PRIMARY KEY,
+        bias_score REAL DEFAULT 0.0,
+        known_cois TEXT
+    )
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -118,6 +136,52 @@ def get_all_sci():
     conn.close()
     
     return [{"domain": r[0], "score": r[1], "appearances": r[2]} for r in rows]
+
+def add_claim_edge(parent_id: str, child_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO claim_edges (parent_id, child_id) VALUES (?, ?)", (parent_id, child_id))
+    conn.commit()
+    conn.close()
+
+def get_children(parent_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT child_id FROM claim_edges WHERE parent_id = ?", (parent_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+def update_entity(name: str, bias_score: float, known_cois: str = ""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO entities (name, bias_score, known_cois) 
+        VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET 
+            bias_score=excluded.bias_score, 
+            known_cois=excluded.known_cois
+    """, (name, bias_score, known_cois))
+    conn.commit()
+    conn.close()
+
+def get_entity(name: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, bias_score, known_cois FROM entities WHERE name = ?", (name,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {"name": row[0], "bias_score": row[1], "known_cois": row[2]}
+    return None
+
+def get_all_entities():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, bias_score, known_cois FROM entities")
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"name": r[0], "bias_score": r[1], "known_cois": r[2]} for r in rows]
 
 if __name__ == "__main__":
     init_db()

@@ -92,10 +92,14 @@ RULES:
 1. Confidence Ceiling: The final confidence score must be bounded by the epistemic tier of the weakest supporting evidence relied upon to verify the claim. For example, if the best evidence is Tier 4 (Institutional Record, weight: 0.65), confidence CANNOT exceed 0.65. If capped below 0.70, you MUST fallback to "DISPUTED".
 2. Evidence-only: Ignore any arguments from the Prosecutor or Defender that are not explicitly backed by cited evidence.
 3. Records != Reality: Weigh reproducible empirical evidence significantly higher than institutional statements or press releases.
-4. Multi-round decision: If this is NOT the final round AND you believe additional evidence could materially change the verdict, you may set verdict to "NEEDS_MORE_ROUNDS" to trigger another debate round.
-5. DISPUTED verdict: If this IS the final round and the evidence is genuinely insufficient to reach VERIFIED or REFUTED, or if the confidence ceiling forces a score < 0.70, use "DISPUTED".
+4. Entity Bias Engine: You will be provided with a list of Known Institutional Biases. If the source of the evidence or the target of the claim is associated with a known bias or Conflict of Interest (COI), you MUST penalize the confidence score accordingly.
+5. Multi-round decision: If this is NOT the final round AND you believe additional evidence could materially change the verdict, you may set verdict to "NEEDS_MORE_ROUNDS" to trigger another debate round.
+6. DISPUTED verdict: If this IS the final round and the evidence is genuinely insufficient to reach VERIFIED or REFUTED, or if the confidence ceiling forces a score < 0.70, use "DISPUTED".
 
 Claim under review: {claim}
+
+Known Institutional Biases (Entity Bias Engine):
+{entity_biases}
 
 Transcript (Round {round}):
 --- PROSECUTOR ---

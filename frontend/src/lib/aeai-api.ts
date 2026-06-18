@@ -101,3 +101,12 @@ export async function getSci(): Promise<SciResponse> {
   if (!res.ok) throw new Error(`SCI fetch failed: ${res.status}`);
   return res.json();
 }
+
+export type EntityEntry = { name: string; bias_score: number; known_cois: string };
+export type EntityResponse = { entities: EntityEntry[] };
+
+export async function getEntities(): Promise<EntityResponse> {
+  const res = await fetch(`${AEAI_API_URL}/entities`);
+  if (!res.ok) throw new Error(`Entities fetch failed: ${res.status}`);
+  return res.json();
+}

@@ -23,7 +23,7 @@ def hash_payload(payload: dict) -> str:
     payload_str = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
 
-def append_to_log(claim_id: str, verdict: str, confidence: float, transcript: str):
+def append_to_log(claim_id: str, verdict: str, confidence: float, transcript: str, ipfs_cid: str = None):
     log_data = _load_log()
     
     # Previous hash
@@ -36,6 +36,7 @@ def append_to_log(claim_id: str, verdict: str, confidence: float, transcript: st
         "verdict": verdict,
         "confidence": confidence,
         "transcript_hash": hash_payload({"transcript": transcript}),
+        "ipfs_cid": ipfs_cid,
         "timestamp": datetime.utcnow().isoformat()
     }
     
