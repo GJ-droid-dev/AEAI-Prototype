@@ -1,0 +1,13 @@
+[
+  {
+    "hash": "9d8f7da2026b6b3aa02f09a9861fc74076e14900f8ba1280cbec49ffe4e426ab",
+    "prev_hash": "GENESIS",
+    "payload": {
+      "claim_id": "5c375066-bdf9-494c-bfd6-8846be05e3cd",
+      "verdict": "DISPUTED",
+      "confidence": 0.55,
+      "transcript_hash": "a3235d0706ddddc523334c10835a8d90c56919142b137a67a2b68d8fd2852ad5",
+      "timestamp": "2026-06-17T15:15:04.435108"
+    }
+  }
+]
