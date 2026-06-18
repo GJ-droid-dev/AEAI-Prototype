@@ -7,8 +7,17 @@ import json
 from database import db
 from agents import graph
 from ledger import merkle
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="AEAI Prototype API", description="Adversarial Epistemic AI Network Prototype — Phase 2")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow frontend to call backend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize database
 db.init_db()
