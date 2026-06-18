@@ -9,5 +9,60 @@
       "transcript_hash": "a3235d0706ddddc523334c10835a8d90c56919142b137a67a2b68d8fd2852ad5",
       "timestamp": "2026-06-17T15:15:04.435108"
     }
+  },
+  {
+    "hash": "68987278d0fbd13659492dcbf7d1b5eeb6500f9d1ecc1ddee3e77d41fda754c2",
+    "prev_hash": "9d8f7da2026b6b3aa02f09a9861fc74076e14900f8ba1280cbec49ffe4e426ab",
+    "payload": {
+      "claim_id": "39d9d626-241d-4ac5-83c8-cdd3912abefd",
+      "verdict": "REFUTED",
+      "confidence": 0.85,
+      "transcript_hash": "df23ff5a23eee18a06b22ad58cfbc3c960166d2ecf4b71f380612a4a30c43f39",
+      "timestamp": "2026-06-18T11:55:23.992259"
+    }
+  },
+  {
+    "hash": "8a60f1a7f3814cb2d853bb9c45ea5285f89753c1a0e2f5eb619fbe2cb24b7b81",
+    "prev_hash": "68987278d0fbd13659492dcbf7d1b5eeb6500f9d1ecc1ddee3e77d41fda754c2",
+    "payload": {
+      "claim_id": "793b3996-cb92-484c-80b7-07b94ae31cf4",
+      "verdict": "REFUTED",
+      "confidence": 0.85,
+      "transcript_hash": "df23ff5a23eee18a06b22ad58cfbc3c960166d2ecf4b71f380612a4a30c43f39",
+      "timestamp": "2026-06-18T11:57:15.917591"
+    }
+  },
+  {
+    "hash": "67d69595fe45a13f0f67ff4fd6c40bd7960b052c2320d484c1946940297c8247",
+    "prev_hash": "8a60f1a7f3814cb2d853bb9c45ea5285f89753c1a0e2f5eb619fbe2cb24b7b81",
+    "payload": {
+      "claim_id": "1911ebd4-66e3-4e16-9572-a2d8d9212217",
+      "verdict": "REFUTED",
+      "confidence": 0.8,
+      "transcript_hash": "c6eb7915759f69c5c6a435dc397b771e0212b5294728c20863a8d68a6a4ee5e2",
+      "timestamp": "2026-06-18T12:08:37.124107"
+    }
+  },
+  {
+    "hash": "2b5cda2ad6b1b52b9bc48e7b96dbb525d16e90da863bd28ed6d3df54f6ad9403",
+    "prev_hash": "67d69595fe45a13f0f67ff4fd6c40bd7960b052c2320d484c1946940297c8247",
+    "payload": {
+      "claim_id": "76bb41fd-98b4-4689-8520-09cab4faf8ef",
+      "verdict": "REFUTED",
+      "confidence": 0.85,
+      "transcript_hash": "df23ff5a23eee18a06b22ad58cfbc3c960166d2ecf4b71f380612a4a30c43f39",
+      "timestamp": "2026-06-18T12:25:45.203200"
+    }
+  },
+  {
+    "hash": "bbf8e88d27d3b8f3a25c3d2ba75313710ac959b4c10878746fb827d2c03bebd5",
+    "prev_hash": "2b5cda2ad6b1b52b9bc48e7b96dbb525d16e90da863bd28ed6d3df54f6ad9403",
+    "payload": {
+      "claim_id": "09757931-bd15-4c5c-9937-941099dae866",
+      "verdict": "DISPUTED",
+      "confidence": 0.65,
+      "transcript_hash": "dd4bbe8d8e918cb90867b73d04150ca66e1fbc1b3b01d23ef561a1cd6e7cb368",
+      "timestamp": "2026-06-18T12:44:37.783441"
+    }
   }
 ]

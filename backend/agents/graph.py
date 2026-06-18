@@ -39,6 +39,9 @@ class AgentState(TypedDict):
     confidence_score: float
     reasoning: str
     unresolved_questions: List[str]
+    corrected_claim: str
+    concise_reasoning: str
+    overall_unresolved_questions: List[str]
 
 # --- LLM Instances ---
 llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0)
@@ -331,7 +334,7 @@ def store_subclaim_result_node(state: AgentState):
     new_index = state["current_sub_claim_index"] + 1
 
     print(
-        f"  [Store] Sub-claim '{state['claim'][:50]}...' → {state['verdict']} ({state['confidence_score']:.2f})"
+        f"  [Store] Sub-claim '{state['claim'][:50]}...' -> {state['verdict']} ({state['confidence_score']:.2f})"
     )
     return {
         "sub_claim_results": new_results,
@@ -386,6 +389,30 @@ def aggregate_node(state: AgentState):
         + "\n\n".join(reasoning_parts)
     )
 
+    synth_prompt = f"""You are the final synthesizer for an Adversarial Epistemic AI Network.
+The original claim was: "{state['original_claim']}"
+
+Here are the results of the adversarial validation cycle for the sub-claims:
+{aggregate_reasoning}
+
+Based on these results, please provide a JSON object with three fields:
+1. "corrected_claim": A concise, modified version of the original claim that is factually accurate based on the research. If the claim was verified, it might be identical. If refuted, it should state the corrected reality.
+2. "concise_reasoning": An articulated, brief, and clear reason for this corrected claim based on the research.
+3. "unresolved_questions": A list of any unresolved questions or nuances.
+"""
+    try:
+        messages = [HumanMessage(content=synth_prompt)]
+        response = llm_json.invoke(messages)
+        parsed = json.loads(extract_text(response.content))
+        corrected_claim = parsed.get("corrected_claim", state["original_claim"])
+        concise_reasoning = parsed.get("concise_reasoning", "")
+        overall_unresolved = parsed.get("unresolved_questions", [])
+    except Exception as e:
+        print(f"  [Aggregate] LLM Synthesis error: {e}")
+        corrected_claim = state["original_claim"]
+        concise_reasoning = "Failed to generate concise summary."
+        overall_unresolved = []
+
     print(
         f"  [Aggregate] Final: {final_verdict} ({final_confidence:.2f}) from {len(results)} sub-claims"
     )
@@ -393,6 +420,9 @@ def aggregate_node(state: AgentState):
         "verdict": final_verdict,
         "confidence_score": final_confidence,
         "reasoning": aggregate_reasoning,
+        "corrected_claim": corrected_claim,
+        "concise_reasoning": concise_reasoning,
+        "overall_unresolved_questions": overall_unresolved if isinstance(overall_unresolved, list) else [],
     }
 
 

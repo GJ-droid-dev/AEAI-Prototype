@@ -26,7 +26,10 @@ export type VerdictResponse = {
   verdict?: string;
   confidence_score?: number;
   transcript?: string;
-  sub_claims?: SubClaimResult[];
+  sub_claims?: any[];
+  corrected_claim?: string;
+  concise_reasoning?: string;
+  unresolved_questions?: string[];
   transparency_proof?: {
     index: number;
     entry_hash: string;

@@ -3,6 +3,11 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 import uuid
 import json
+from dotenv import load_dotenv
+import os
+load_dotenv()
+if "GEMINI_API_KEY" in os.environ:
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 
 from database import db
 from agents import graph
@@ -100,8 +105,13 @@ def process_claim_background(claim_id: str, claim_text: str):
         # Format the full transcript
         transcript = _format_transcript(result)
         
-        # Serialize sub-claim results as JSON
-        sub_claims_json = json.dumps(result.get("sub_claim_results", []), default=str)
+        # Serialize sub-claim results and synthesis as JSON
+        sub_claims_json = json.dumps({
+            "sub_claims": result.get("sub_claim_results", []),
+            "corrected_claim": result.get("corrected_claim", ""),
+            "concise_reasoning": result.get("concise_reasoning", ""),
+            "unresolved_questions": result.get("overall_unresolved_questions", [])
+        }, default=str)
         
         # Append to transparency log
         merkle_root = merkle.append_to_log(claim_id, verdict, confidence, transcript)
@@ -146,7 +156,14 @@ def get_verdict(claim_id: str):
         # Include sub-claim breakdown if available
         if claim_data.get("sub_claims"):
             try:
-                response["sub_claims"] = json.loads(claim_data["sub_claims"])
+                parsed = json.loads(claim_data["sub_claims"])
+                if isinstance(parsed, list):
+                    response["sub_claims"] = parsed
+                else:
+                    response["sub_claims"] = parsed.get("sub_claims", [])
+                    response["corrected_claim"] = parsed.get("corrected_claim", "")
+                    response["concise_reasoning"] = parsed.get("concise_reasoning", "")
+                    response["unresolved_questions"] = parsed.get("unresolved_questions", [])
             except (json.JSONDecodeError, TypeError):
                 pass
         
